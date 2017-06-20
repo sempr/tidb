@@ -21,6 +21,10 @@ import (
 	"github.com/pingcap/tidb/model"
 	"github.com/pingcap/tidb/mysql"
 	"github.com/pingcap/tidb/util/types"
+
+	"github.com/ngaut/log"
+	"reflect"
+	"strings"
 )
 
 type aggregationOptimizer struct {
@@ -333,6 +337,9 @@ func (a *aggregationOptimizer) aggPushDown(p LogicalPlan) LogicalPlan {
 			p = proj
 		} else {
 			child := agg.children[0]
+			if strings.Contains(ToString(p), "test") {
+				log.Errorf("child: %s\n", reflect.TypeOf(child))
+			}
 			if join, ok1 := child.(*LogicalJoin); ok1 && a.checkValidJoin(join) {
 				if valid, leftAggFuncs, rightAggFuncs, leftGbyCols, rightGbyCols := a.splitAggFuncsAndGbyCols(agg, join); valid {
 					var lChild, rChild LogicalPlan
@@ -391,6 +398,16 @@ func (a *aggregationOptimizer) aggPushDown(p LogicalPlan) LogicalPlan {
 				}
 				union.SetChildren(newChildren...)
 				union.SetSchema(pushedAgg.schema)
+			} else if ds, ok1 := child.(*DataSource); ok1 {
+				log.Errorf("group by items len: %d\n", len(agg.GroupByItems))
+				for i, expr := range agg.GroupByItems {
+					log.Errorf("group by item: %s\n", expr.String())
+					agg.GroupByItems[i] = ds.replaceColumnByGenerationExpression(expr)
+					log.Errorf("group by item after adjust: %s\n", agg.GroupByItems[i].String())
+				}
+				for _, aggFunc := range agg.AggFuncs {
+					log.Errorf("aggFunc: %s\n", aggFunc)
+				}
 			}
 		}
 	}

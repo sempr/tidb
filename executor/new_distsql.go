@@ -24,6 +24,9 @@ import (
 	"github.com/pingcap/tidb/util/types"
 	"github.com/pingcap/tipb/go-tipb"
 	goctx "golang.org/x/net/context"
+
+	"fmt"
+	"github.com/ngaut/log"
 )
 
 var (
@@ -110,8 +113,15 @@ func (e *TableReaderExecutor) Next() (*Row, error) {
 			return nil, errors.Trace(err)
 		}
 		// Calculate generated columns here.
+		valueS := ""
+		for _, v := range values {
+			valueS += fmt.Sprintf("%d, %v\t", v.Kind(), v.GetValue())
+		}
+		log.Errorf("values: %s\n", valueS)
 		for i, col := range e.columns {
+			log.Errorf("col name: %s\n", col.Name.O)
 			if len(col.GeneratedExprString) != 0 && !col.GeneratedStored {
+				log.Errorf("eval gc %s by %s\n", col.Name.O, e.GenValues[i].String())
 				val, err := e.GenValues[i].Eval(values)
 				if err != nil {
 					return nil, errors.Trace(err)
