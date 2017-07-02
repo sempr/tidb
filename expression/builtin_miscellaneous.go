@@ -63,8 +63,7 @@ var (
 	_ builtinFunc = &builtinInet6NtoaSig{}
 	_ builtinFunc = &builtinIsFreeLockSig{}
 	_ builtinFunc = &builtinIsIPv4Sig{}
-	_ builtinFunc = &builtinIsIPv4CompatSig{}
-	_ builtinFunc = &builtinIsIPv4MappedSig{}
+	_ builtinFunc = &builtinIsIPv4PrefixedSig{}
 	_ builtinFunc = &builtinIsIPv6Sig{}
 	_ builtinFunc = &builtinIsUsedLockSig{}
 	_ builtinFunc = &builtinMasterPosWaitSig{}
@@ -529,28 +528,12 @@ func isIPv4(ip string) bool {
 	return true
 }
 
-type isIPv4CompatFunctionClass struct {
-	baseFunctionClass
-}
-
-func (c *isIPv4CompatFunctionClass) getFunction(args []Expression, ctx context.Context) (builtinFunc, error) {
-	sig := &builtinIsIPv4CompatSig{newBaseBuiltinFunc(args, ctx)}
-	return sig.setSelf(sig), errors.Trace(c.verifyArgs(args))
-}
-
-type builtinIsIPv4CompatSig struct {
-	baseBuiltinFunc
-}
-
-// eval evals a builtinIsIPv4CompatSig.
-// See https://dev.mysql.com/doc/refman/5.7/en/miscellaneous-functions.html#function_is-ipv4-compat
-func (b *builtinIsIPv4CompatSig) eval(row []types.Datum) (d types.Datum, err error) {
-	args, err := b.evalArgs(row)
-	if err != nil {
-		return d, errors.Trace(err)
-	}
-
-	arg := args[0]
+// checkIPv6Prefix checks whether the IPv6 bytes has Sepcial Prefix
+// It will be used to check IPv4Mapped and IPv4Compat IPv6 Address
+// IPv4Mapped Address has 10 bytes 0, 2 bytes 0xff and ipv4_address followed
+// IPv4Compat Address has 12 bytes 0, and ipv4_address followed
+func checkIPv6Prefix(args *[]types.Datum, v4InV6Prefix *[]byte) (d types.Datum, err error) {
+	arg := (*args)[0]
 	d.SetInt64(0)
 	if arg.IsNull() {
 		return d, nil
@@ -566,12 +549,45 @@ func (b *builtinIsIPv4CompatSig) eval(row []types.Datum) (d types.Datum, err err
 		return
 	}
 
-	var v4InV6Prefix = []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
-	if !bytes.HasPrefix(ipAddress, v4InV6Prefix) {
+	if !bytes.HasPrefix(ipAddress, *v4InV6Prefix) {
 		return
 	}
 
 	d.SetInt64(1)
+	return
+}
+
+type isIPv4CompatFunctionClass struct {
+	baseFunctionClass
+}
+
+func (c *isIPv4CompatFunctionClass) getFunction(args []Expression, ctx context.Context) (builtinFunc, error) {
+	sig := &builtinIsIPv4PrefixedSig{newBaseBuiltinFunc(args, ctx), false}
+	return sig.setSelf(sig), errors.Trace(c.verifyArgs(args))
+}
+
+type builtinIsIPv4PrefixedSig struct {
+	baseBuiltinFunc
+	isOneInSixthBytePair bool
+}
+
+// eval evals a builtinIsIPv4MappedSig and builtinIsIPv4CompatSig.
+// See https://dev.mysql.com/doc/refman/5.7/en/miscellaneous-functions.html#function_is-ipv4-compat
+// See https://dev.mysql.com/doc/refman/5.7/en/miscellaneous-functions.html#function_is-ipv4-mapped
+func (b *builtinIsIPv4PrefixedSig) eval(row []types.Datum) (d types.Datum, err error) {
+	var (
+		prefixMapped []byte = []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff}
+		prefixCompat []byte = []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+	)
+	args, err := b.evalArgs(row)
+	if err != nil {
+		return d, errors.Trace(err)
+	}
+	if b.isOneInSixthBytePair {
+		d, err = checkIPv6Prefix(&args, &prefixMapped)
+	} else {
+		d, err = checkIPv6Prefix(&args, &prefixCompat)
+	}
 	return
 }
 
@@ -580,45 +596,8 @@ type isIPv4MappedFunctionClass struct {
 }
 
 func (c *isIPv4MappedFunctionClass) getFunction(args []Expression, ctx context.Context) (builtinFunc, error) {
-	sig := &builtinIsIPv4MappedSig{newBaseBuiltinFunc(args, ctx)}
+	sig := &builtinIsIPv4PrefixedSig{newBaseBuiltinFunc(args, ctx), true}
 	return sig.setSelf(sig), errors.Trace(c.verifyArgs(args))
-}
-
-type builtinIsIPv4MappedSig struct {
-	baseBuiltinFunc
-}
-
-// eval evals a builtinIsIPv4MappedSig.
-// See https://dev.mysql.com/doc/refman/5.7/en/miscellaneous-functions.html#function_is-ipv4-mapped
-func (b *builtinIsIPv4MappedSig) eval(row []types.Datum) (d types.Datum, err error) {
-	args, err := b.evalArgs(row)
-	if err != nil {
-		return d, errors.Trace(err)
-	}
-
-	arg := args[0]
-	d.SetInt64(0)
-	if arg.IsNull() {
-		return d, nil
-	}
-
-	ipAddress, err := arg.ToBytes()
-	if err != nil {
-		return d, errors.Trace(err)
-	}
-
-	if len(ipAddress) != net.IPv6len {
-		//Not an IPv6 address, return false
-		return
-	}
-
-	var v4InV6Prefix = []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff}
-	if !bytes.HasPrefix(ipAddress, v4InV6Prefix) {
-		return
-	}
-
-	d.SetInt64(1)
-	return
 }
 
 type isIPv6FunctionClass struct {
