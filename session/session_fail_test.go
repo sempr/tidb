@@ -23,12 +23,12 @@ func (s *testSessionSuite) TestFailStatementCommit(c *C) {
 	defer gofail.Disable("github.com/pingcap/tidb/session/mockStmtCommitError")
 
 	tk := testkit.NewTestKitWithInit(c, s.store)
-	tk.MustExec("create table t (id int)")
-	tk.MustExec("begin")
-	tk.MustExec("insert into t values (1)")
+	tk.MustExec(`create table t (id int)`)
+	tk.MustExec(`begin`)
+	tk.MustExec(`insert into t values (1)`)
 	gofail.Enable("github.com/pingcap/tidb/session/mockStmtCommitError", `return(true)`)
-	tk.MustExec("insert into t values (2)")
-	_, err := tk.Exec("commit")
+	tk.MustExec(`insert into t values (2)`)
+	_, err := tk.Exec(`commit`)
 	c.Assert(err, NotNil)
 	tk.MustQuery(`select * from t`).Check(testkit.Rows())
 }
